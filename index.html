@@ -14,7 +14,6 @@
     html, body { height: 100%; background: #1e1b4b; overflow: hidden; }
     #root { height: 100%; }
 
-    /* Loading screen */
     #ws-loading {
       position: fixed; inset: 0; z-index: 9999;
       display: flex; flex-direction: column;
@@ -27,14 +26,14 @@
     #ws-loading.fade-out { opacity: 0; pointer-events: none; }
     .ws-logo { font-size: 56px; animation: wsPulse 1.4s ease-in-out infinite; }
     .ws-name { font-size: 28px; font-weight: 900; margin-top: 16px; letter-spacing: -0.5px; }
-    .ws-sub  { font-size: 14px; margin-top: 8px; opacity: 0.55; letter-spacing: 0.3px; }
+    .ws-sub  { font-size: 14px; margin-top: 8px; opacity: 0.55; }
     @keyframes wsPulse {
       0%, 100% { transform: scale(1); }
       50%       { transform: scale(1.12); }
     }
   </style>
 
-  <!-- storage polyfill: maps Claude's window.storage API to localStorage -->
+  <!-- localStorage polyfill for window.storage API -->
   <script>
     window.storage = {
       get: async function(key) {
@@ -60,7 +59,6 @@
 </head>
 <body>
 
-  <!-- Loading screen -->
   <div id="ws-loading">
     <div class="ws-logo">⚡</div>
     <div class="ws-name">WordSpark</div>
@@ -69,15 +67,12 @@
 
   <div id="root"></div>
 
-  <!-- React 18 + ReactDOM (UMD, production) -->
+  <!-- React 18 + ReactDOM (UMD production builds — no build step needed) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- Babel standalone — compiles JSX in the browser -->
-  <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
-
-  <!-- The app -->
-  <script type="text/babel" src="wordspark-web.jsx"></script>
+  <!-- Pre-built app — no Babel needed, runs instantly -->
+  <script src="app.js"></script>
 
   <!-- Hide loading screen once React mounts -->
   <script>
