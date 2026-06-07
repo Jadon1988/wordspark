@@ -7,21 +7,19 @@
   <meta name="description" content="WordSpark — Learn English vocabulary with games, streaks and AI coaching" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
   <title>WordSpark ⚡</title>
 
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-    /* ── Mobile: full screen as normal ── */
     html, body {
       height: 100%;
       background: #1e1b4b;
     }
-    #root {
-      height: 100%;
-    }
+    #root { height: 100%; }
 
-    /* ── Desktop: centered phone card ── */
+    /* Desktop: centered phone card */
     @media (min-width: 600px) {
       html, body {
         height: auto;
@@ -66,7 +64,7 @@
     }
   </style>
 
-  <!-- localStorage polyfill for window.storage API -->
+  <!-- window.storage API — maps to localStorage for persistence -->
   <script>
     window.storage = {
       get: async function(key) {
@@ -100,24 +98,24 @@
 
   <div id="root"></div>
 
-  <!-- React 18 + ReactDOM -->
+  <!-- React 18 -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- Pre-built app -->
+  <!-- App -->
   <script src="app.js"></script>
 
-  <!-- Hide loading screen once React mounts -->
+  <!-- Hide loading screen once React has mounted -->
   <script>
-    var observer = new MutationObserver(function() {
+    var _obs = new MutationObserver(function() {
       if (document.getElementById('root').children.length > 0) {
         var loader = document.getElementById('ws-loading');
         loader.classList.add('fade-out');
         setTimeout(function(){ loader.style.display = 'none'; }, 420);
-        observer.disconnect();
+        _obs.disconnect();
       }
     });
-    observer.observe(document.getElementById('root'), { childList: true, subtree: true });
+    _obs.observe(document.getElementById('root'), { childList: true, subtree: true });
   </script>
 
 </body>
