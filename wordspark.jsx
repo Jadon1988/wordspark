@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
+// ── API PROXY ─────────────────────────────────────────────────────────────────
+// Replace with your Cloudflare Worker URL after deployment.
+// See wordspark-worker.js for setup instructions.
+const ANTHROPIC_PROXY = "https://api.anthropic.com"; // ← swap to your worker URL
+
 // ── GAME DATA ──────────────────────────────────────────────────────────────────
 const WORDS_DATA = {
   Beginner:[
@@ -3742,12 +3747,13 @@ function scorePlacement(answers) {
 
 // Streak milestone rewards — each earned once only
 const STREAK_MILESTONES = [
-  { days:10,  xp:25,  emoji:"🔥", badge:"10-Day",   msg:"Ten days straight — you're building a real habit!" },
-  { days:30,  xp:50,  emoji:"🥈", badge:"30-Day",   msg:"A whole month of daily English. That's impressive." },
-  { days:60,  xp:100, emoji:"🥇", badge:"60-Day",   msg:"Two months in — your vocabulary is growing fast!" },
-  { days:90,  xp:150, emoji:"💎", badge:"90-Day",   msg:"Ninety days. You've turned learning into a lifestyle." },
-  { days:180, xp:320, emoji:"👑", badge:"180-Day",  msg:"Half a year of dedication. Truly remarkable." },
-  { days:365, xp:700, emoji:"🏆", badge:"365-Day",  msg:"A full year. You're in a league of your own." },
+  { days:7,   xp:15,  emoji:"🥉", badge:"7-Day",    msg:"One full week. You said you'd do it, and you did. That's everything." },
+  { days:10,  xp:25,  emoji:"🔥", badge:"10-Day",   msg:"Ten days in a row. You're not playing around 🔥" },
+  { days:30,  xp:50,  emoji:"🥈", badge:"30-Day",   msg:"A whole month. Your future self is already thanking you 🙏" },
+  { days:60,  xp:100, emoji:"🥇", badge:"60-Day",   msg:"Two months. Most people quit by day 3. You didn't." },
+  { days:90,  xp:150, emoji:"💎", badge:"90-Day",   msg:"90 days. You've officially made this part of who you are." },
+  { days:180, xp:320, emoji:"👑", badge:"180-Day",  msg:"Half a year. You're in a completely different league now." },
+  { days:365, xp:700, emoji:"🏆", badge:"365-Day",  msg:"365 days. One full year. Absolute legend. No other words." },
 ];
 
 // Free tier daily limits
@@ -3764,7 +3770,7 @@ function highlightTerm(sentence, term) {
 
 // City validation via Claude
 async function validateCity(location) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
       model:"claude-haiku-4-5-20251001", max_tokens:80,
@@ -3787,7 +3793,7 @@ async function fetchWeatherGreeting(city, name) {
   const h = new Date().getHours();
   const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
         model:"claude-haiku-4-5-20251001", max_tokens:120,
@@ -3854,6 +3860,7 @@ export default function App() {
   const [resetConfirm,   setResetConfirm]   = useState(false);   // 2-step reset
   const [nudgeDismissed,  setNudgeDismissed]  = useState(false);   // new-user nudge
   const [showOnboarding, setShowOnboarding]  = useState(false);
+  const [profileSource,  setProfileSource]   = useState("onboarding"); // "onboarding" | "settings"
   const [launchCount,   setLaunchCount]    = useState(0);   // total app opens, for nudge throttle  // first-time welcome flow
   const [onboardStep,    setOnboardStep]     = useState(0);       // 0-2
   const [dailyXp,        setDailyXp]        = useState(0);       // today's XP earned
@@ -3861,7 +3868,7 @@ export default function App() {
 
   // ── Derived values ───────────────────────────────────────────────────────────
   const showBottomNav = ['home','vocab','word','speak','dict','stats','settings'].includes(screen) && !game;
-  const activeTab     = screen;
+  const activeTab     = (screen === 'stats' || screen === 'settings') ? 'home' : screen;
   const { xpLevelIdx, placementIdx, level, xpNext, lvlColor, isSaturday } = useMemo(() => {
     const xpLevelIdx   = xp >= 2000 ? 3 : xp >= 1000 ? 2 : xp >= 600 ? 1 : 0;
     const placementIdx = LEVEL_ORDER.indexOf(placementLevel);
@@ -3902,7 +3909,8 @@ export default function App() {
     setXpPop(true); setTimeout(() => setXpPop(false), 1400);
   }, [reviewMode, isPro]); // eslint-disable-line
   const showBonus = useCallback((msg, color="#6366f1") => { setBonusPop({ msg, color }); setTimeout(() => setBonusPop(null), 2200); }, []);
-  const go = useCallback(s => { setScreen(s); setGame(null); setCStreak(0); setReviewMode(false); setBusinessMode(false); }, []);
+  const [screenKey,    setScreenKey]    = useState(0);
+  const go = useCallback(s => { setScreen(s); setGame(null); setCStreak(0); setReviewMode(false); setBusinessMode(false); setScreenKey(k=>k+1); }, []);
 
   // ── Scramble state ───────────────────────────────────────────────────────────
   const [scIdx,    setScIdx]    = useState(0);
@@ -3978,7 +3986,13 @@ export default function App() {
   const [mgTimer,   setMgTimer]   = useState(null);
   const [mgResult,  setMgResult]  = useState(null);
   const [mgAnim,    setMgAnim]    = useState(null);
-  const mgTimerRef = useRef(null);
+  const [mgBuyConfirm, setMgBuyConfirm] = useState(false); // buy-heart confirmation
+  const [speedCount,   setSpeedCount]   = useState(null);  // speed bonus countdown
+  const [flashResult,  setFlashResult]  = useState(null);  // correct/wrong screen flash
+  const [shareToast,   setShareToast]   = useState(false); // "Copied!" confirmation toast
+  const mgTimerRef   = useRef(null);
+  const speedTimerRef = useRef(null);
+  const flashTimerRef  = useRef(null);
   const bizDeckW  = useRef([]);   // Business Pack word deck
   const bizDeckF  = useRef([]);   // Business Pack flashcard deck
   const bizDeckFb = useRef([]);   // Business Pack fill deck
@@ -4037,17 +4051,34 @@ export default function App() {
 
   useEffect(() => {
     if (game === "scramble") {
-      const words = businessMode ? BUSINESS_PACK.words : SCRAMBLE_WORDS[level];
-      const deck  = businessMode ? bizDeckW : scDeck;
+      const maxLen = { Beginner:7, Intermediate:9, Advanced:11, Proficiency:99 }[level] || 99;
+      const rawWords = businessMode ? BUSINESS_PACK.words : SCRAMBLE_WORDS[level];
+      const words    = businessMode ? rawWords : rawWords.filter(w => w.length <= maxLen);
+      const deck     = businessMode ? bizDeckW : scDeck;
       if (!deck.current.length) deck.current = shuffleIndices(words.length);
-      const entry = words[deck.current[scIdx % deck.current.length]];
+      const entry   = words[deck.current[scIdx % deck.current.length]];
       const wordStr = businessMode ? entry.word : entry;
       setScWord(shuffleW(wordStr)); setScInput(""); setScResult(null);
     }
   }, [game, scIdx, level, businessMode]); // eslint-disable-line
 
   useEffect(() => {
-    if (game) qTime.current = Date.now();
+    if (game) {
+      qTime.current = Date.now();
+      if (speedTimerRef.current) clearInterval(speedTimerRef.current);
+      if (game === "scramble" || game === "flashcard") {
+        setSpeedCount(8);
+        speedTimerRef.current = setInterval(() => {
+          setSpeedCount(n => {
+            if (n <= 1) { clearInterval(speedTimerRef.current); return 0; }
+            return n - 1;
+          });
+        }, 1000);
+      } else {
+        setSpeedCount(null);
+      }
+    }
+    return () => { if (speedTimerRef.current) clearInterval(speedTimerRef.current); };
   }, [game, scIdx, flIdx, fbIdx]); // eslint-disable-line
 
   // Fetch image for flashcard noun cards whenever the card index changes
@@ -4089,6 +4120,21 @@ export default function App() {
   }, [screen]); // eslint-disable-line
 
   useEffect(() => {
+    if (screen === "home") {
+      // Refresh 7-day calendar so today's dot updates after earning XP
+      (async () => {
+        const cal = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          const key = "ws_daily_xp_" + d.toDateString();
+          try {
+            const res = await window.storage.get(key);
+            cal.push({ label: d.toLocaleDateString("en",{weekday:"short"})[0], xp: res ? parseInt(res.value)||0 : 0, isToday: i===0 });
+          } catch { cal.push({ label: d.toLocaleDateString("en",{weekday:"short"})[0], xp:0, isToday:i===0 }); }
+        }
+        setHomeCalendar(cal);
+      })();
+    }
     if (screen !== "word") return;
     setWotdTranslation(null); setWotdTranslating(false);
     setWotdChunks(null); setWotdChunksLoading(false);
@@ -4109,7 +4155,7 @@ export default function App() {
       if (id.examples) { setIdiomContent(id); setIdiomContentLoading(false); }
       else {
         setIdiomContent(null); setIdiomContentLoading(true);
-        fetch("https://api.anthropic.com/v1/messages", {
+        fetch(`${ANTHROPIC_PROXY}/v1/messages`, {
           method:"POST", headers:{"Content-Type":"application/json"},
           body: JSON.stringify({
             model:"claude-haiku-4-5-20251001", max_tokens:350,
@@ -4129,7 +4175,7 @@ export default function App() {
       // Generate word chunks for Pro users
       const w = getWotd(level);
       setWotdChunksLoading(true);
-      fetch("https://api.anthropic.com/v1/messages", {
+      fetch(`${ANTHROPIC_PROXY}/v1/messages`, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           model:"claude-haiku-4-5-20251001", max_tokens:300,
@@ -4379,7 +4425,8 @@ export default function App() {
       try { await window.storage.set("ws_profile", JSON.stringify({ name, city, country })); } catch {}
       setTimeout(() => {
         setProfileLocConfirm(null);
-        if (!placementDoneRef.current) setScreen("placement");
+        if (profileSource === "settings") { setProfileSource("onboarding"); setScreen("settings"); }
+        else if (!placementDoneRef.current) setScreen("placement");
         else { setAppReady(true); setScreen("home"); }
       }, 1200);
     } catch { setProfileLocError("Something went wrong — please try again."); setProfileLocChecking(false); }
@@ -4389,7 +4436,7 @@ export default function App() {
   async function resetAllData() {
     const weekNum = Math.floor(Date.now()/(7*24*60*60*1000));
     const today   = new Date().toDateString();
-    for (const key of ["ws_profile","ws_placement","ws_streak","ws_streak_badges","ws_pro","ws_freeze","ws_studied","ws_wotd_words","ws_dict_saved","ws_nudge_dismissed","ws_xp","ws_onboarding_done",`ws_weather_${today}`,`ws_daily_xp_${today}`,`ws_wotd_${today}`,`ws_idiom_${weekNum}`,`ws_emily_${today}`,`ws_practice_${today}`])
+    for (const key of ["ws_profile","ws_placement","ws_streak","ws_streak_badges","ws_pro","ws_freeze","ws_studied","ws_wotd_words","ws_dict_saved","ws_nudge_dismissed","ws_xp","ws_words_learned","ws_accuracy","ws_emily_memory","ws_launch_count","ws_onboarding_done",`ws_weather_${today}`,`ws_daily_xp_${today}`,`ws_wotd_${today}`,`ws_idiom_${weekNum}`,`ws_emily_${today}`,`ws_practice_${today}`])
       try { await window.storage.delete(key); } catch {}
     setProfileName(""); setProfileLocation(""); setProfileCoords(null);
     setProfileStep("name"); setProfileNameInp(""); setProfileLocInp("");
@@ -4398,8 +4445,31 @@ export default function App() {
     setXp(0); setStreak(0); setWordsLearned(0); setAccuracy({correct:0,total:0}); setLaunchCount(0); setEmilyMemory(""); setShowOnboarding(true); setAppReady(false);
     setEarnedBadges(new Set()); setStreakMilestone(null);
     setIsPro(false); setProTier("none"); setEmilyDailyCount(0); setPracticeDailyCount(0); setPaywallSource(null);
-    setFreezeInfo({ used:0, week:0 }); setHasStudied(false); setDictSaved([]); setNudgeDismissed(false); setDailyXp(0); setResetConfirm(false);
+    setFreezeInfo({ used:0, week:0 }); setHasStudied(false); setDictSaved([]); setNudgeDismissed(false); setDailyXp(0); setResetConfirm(false); setProfileSource("onboarding"); setScreenKey(0); setFlashResult(null); setSpeedCount(null); setOnboardStep(0); setHomeCalendar([]); if(flashTimerRef.current)clearTimeout(flashTimerRef.current); if(speedTimerRef.current)clearInterval(speedTimerRef.current);
     placementDoneRef.current = false; setScreen("profile");
+  }
+
+  async function shareAchievement(days, emoji, customText) {
+    const texts = {
+      7:   `Just hit a 7-day streak on WordSpark! ${emoji} One full week of daily English — and I'm just getting started.`,
+      10:  `10-day streak on WordSpark! ${emoji} Ten days straight of English practice. The habit is forming.`,
+      30:  `30 days of daily English on WordSpark! ${emoji} A whole month without missing a day. My future self is already thanking me.`,
+      60:  `60-day streak! ${emoji} Two months of daily English practice on WordSpark. Most people quit by day 3. I didn't.`,
+      90:  `90 days on WordSpark! ${emoji} Three months of daily English. It's officially part of who I am now.`,
+      180: `Half a year of daily English! ${emoji} 180-day streak on WordSpark. In a completely different league now.`,
+      365: `365 days. One full year of daily English on WordSpark! ${emoji} Absolute legend status achieved. 🏆`,
+    };
+    const text = customText || texts[days] || `${emoji} ${days}-day streak on WordSpark! Learning English every single day.`;
+    const url  = 'https://jadon1988.github.io/wordspark/';
+    try {
+      if (navigator.share) {
+        await navigator.share({ title:'WordSpark Achievement 🔥', text: text + '\n\n' + url });
+      } else {
+        await navigator.clipboard.writeText(text + '\n\n' + url);
+        setShareToast(true);
+        setTimeout(() => setShareToast(false), 2500);
+      }
+    } catch {}
   }
 
   async function claimMilestone() {
@@ -4441,7 +4511,9 @@ export default function App() {
     const elapsed = Date.now()-qTime.current;
     markStudied();
     if (scInput.toUpperCase() === word) {
-      setScResult("correct");
+      if (speedTimerRef.current) { clearInterval(speedTimerRef.current); setSpeedCount(0); }
+    if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("correct"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500);
+    setScResult("correct");
       setAccuracy(a => { const next={correct:a.correct+1,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; });
       setWordsLearned(n => { const next=n+1; window.storage.set("ws_words_learned",String(next)).catch(()=>{}); return next; });
       const ns = cStreak+1; setCStreak(ns);
@@ -4449,7 +4521,7 @@ export default function App() {
       if (ns%5===0){bonus+=20;showBonus("🏆 Perfect x"+ns+"! +20 XP","#8b5cf6");}
       else if (elapsed<8000){bonus+=5;showBonus("⚡ Speed bonus! +5 XP","#06b6d4");}
       earnXp(10+bonus);
-    } else { setScResult("wrong"); setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
+    } else { if (speedTimerRef.current) { clearInterval(speedTimerRef.current); setSpeedCount(0); } if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("wrong"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500); setScResult("wrong"); setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
   }
 
   function pickFl(i) {
@@ -4460,6 +4532,8 @@ export default function App() {
     const deck  = businessMode ? bizDeckF : flDeck;
     const f = deckItem(cards, flIdx, deck);
     if (i===f.answer) {
+      if (speedTimerRef.current) { clearInterval(speedTimerRef.current); setSpeedCount(0); }
+      if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("correct"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500);
       setAccuracy(a => { const next={correct:a.correct+1,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; });
       setWordsLearned(n => { const next=n+1; window.storage.set("ws_words_learned",String(next)).catch(()=>{}); return next; });
       const ns=cStreak+1; setCStreak(ns);
@@ -4467,7 +4541,7 @@ export default function App() {
       if (ns%5===0){bonus+=20;showBonus("🏆 Perfect x"+ns+"! +20 XP","#8b5cf6");}
       else if (elapsed<8000){bonus+=5;showBonus("⚡ Speed bonus! +5 XP","#06b6d4");}
       earnXp(10+bonus);
-    } else { setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
+    } else { if (speedTimerRef.current) { clearInterval(speedTimerRef.current); setSpeedCount(0); } if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("wrong"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500); setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
   }
 
   function pickFb(i) {
@@ -4477,6 +4551,7 @@ export default function App() {
     const deck  = businessMode ? bizDeckFb : fbDeck;
     const fb = deckItem(fills, fbIdx, deck);
     if (i===fb.answer) {
+      if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("correct"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500);
       setAccuracy(a => { const next={correct:a.correct+1,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; });
       setWordsLearned(n => { const next=n+1; window.storage.set("ws_words_learned",String(next)).catch(()=>{}); return next; });
       const ns=cStreak+1; setCStreak(ns);
@@ -4484,7 +4559,7 @@ export default function App() {
       if (ns%5===0){bonus+=20;showBonus("🏆 Perfect x"+ns+"! +20 XP","#8b5cf6");}
       else { const elapsed=Date.now()-qTime.current; if(elapsed<8000){bonus+=5;showBonus("⚡ Speed bonus! +5 XP","#06b6d4");}}
       earnXp(10+bonus);
-    } else { setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
+    } else { if(flashTimerRef.current)clearTimeout(flashTimerRef.current); setFlashResult("wrong"); flashTimerRef.current=setTimeout(()=>setFlashResult(null),500); setCStreak(0); setAccuracy(a => { const next={correct:a.correct,total:a.total+1}; window.storage.set("ws_accuracy",JSON.stringify(next)).catch(()=>{}); return next; }); }
   }
 
   // ── Sentence practice ────────────────────────────────────────────────────────
@@ -4504,7 +4579,7 @@ export default function App() {
     const newCount = practiceDailyCount+1; setPracticeDailyCount(newCount);
     try { await window.storage.set("ws_practice_"+new Date().toDateString(), String(newCount)); } catch {}
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:200,messages:[{role:"user",content:`The English word is "${w.word}". The student wrote: "${sentence}". Did they use the word correctly? Reply ONLY with JSON:\n{"correct":true/false,"feedback":"encouraging 1-sentence feedback"}`}]})});
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:200,messages:[{role:"user",content:`The English word is "${w.word}". The student wrote: "${sentence}". Did they use the word correctly? Reply ONLY with JSON:\n{"correct":true/false,"feedback":"encouraging 1-sentence feedback"}`}]})});
       const d = await res.json();
       const text = d.content?.[0]?.text?.trim()||"{}";
       const result = JSON.parse(text.replace(/```json|```/g,"").trim());
@@ -4533,7 +4608,7 @@ export default function App() {
     const newCount = practiceDailyCount+1; setPracticeDailyCount(newCount);
     try { await window.storage.set("ws_practice_"+new Date().toDateString(), String(newCount)); } catch {}
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:200,messages:[{role:"user",content:`The idiom is "${id.idiom}" meaning "${id.meaning}". The student wrote: "${sentence}". Did they use the idiom correctly? Reply ONLY with JSON:\n{"correct":true/false,"feedback":"encouraging 1-sentence feedback"}`}]})});
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:200,messages:[{role:"user",content:`The idiom is "${id.idiom}" meaning "${id.meaning}". The student wrote: "${sentence}". Did they use the idiom correctly? Reply ONLY with JSON:\n{"correct":true/false,"feedback":"encouraging 1-sentence feedback"}`}]})});
       const d = await res.json();
       const text = d.content?.[0]?.text?.trim()||"{}";
       const result = JSON.parse(text.replace(/```json|```/g,"").trim());
@@ -4557,7 +4632,7 @@ export default function App() {
     if (_transCache.has(cacheKey)) { setter(_transCache.get(cacheKey)); return; }
     loadSetter(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:30,messages:[{role:"user",content:`Translate English "${word}" to the main language of ${country}. Reply with ONE line only: "${word} means [translated word]"`}]})});
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:30,messages:[{role:"user",content:`Translate English "${word}" to the main language of ${country}. Reply with ONE line only: "${word} means [translated word]"`}]})});
       const d = await res.json();
       const result = d.content?.[0]?.text?.trim() || "Translation unavailable.";
       _transCache.set(cacheKey, result);
@@ -4617,7 +4692,7 @@ export default function App() {
     if (!conversation || conversation.length < 4) return; // need enough to summarise
     const turns = conversation.map(m => m.role+": "+m.content).join("\n");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-haiku-4-5-20251001", max_tokens:120,
         messages:[{role:"user",content:"This is a conversation between Emily (AI tutor) and an English learner. Summarise what you learned about the learner in 2-3 short bullet points (max 80 words). Focus on: their goals, background, interests, job, reason for learning English, or personal details they shared. Start each point with •\n\n"+turns}]
       })});
@@ -4640,7 +4715,7 @@ export default function App() {
     const newCount = emilyDailyCount+1; setEmilyDailyCount(newCount);
     try { await window.storage.set("ws_emily_"+new Date().toDateString(), String(newCount)); } catch {}
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","anthropic-beta":"prompt-caching-2024-07-31"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json","anthropic-beta":"prompt-caching-2024-07-31"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
         system:[{type:"text",text:(emilyMemory?"[Memory from past sessions with this learner]\n"+emilyMemory+"\n\nUse this naturally in your replies without saying 'I remember'. Now continue the session normally.\n\n":"")+( proTier==="annual"?"You are Emily, a friendly and funny native English speaker chatting with a language learner. You genuinely enjoy this conversation — react naturally, share your own (fictional) opinions and little personal stories, use light humour when it fits, and occasionally reference things the person mentioned earlier in the chat to show you were listening. You are at "+level+" level vocabulary so keep your language appropriate, but talk like a real person, not a teacher. Correct grammar mistakes by naturally using the right form in your own reply — never point them out explicitly. Don't always end with a question; sometimes just respond like a human would. Keep replies to 2-4 sentences.\n\nCONTENT POLICY: This is a family-friendly English learning app. If the user brings up sexual topics, child abuse, graphic violence, illegal activities, hate speech, or political topics, do NOT engage. Instead respond warmly: That is not something I can chat about here — let us get back to "+topic+"! Always stay friendly and immediately redirect.":"You are Emily, a warm and encouraging English language tutor. The student is at "+level+" level and the chosen topic is \""+topic+"\". Keep all replies to 2-3 sentences. Gently correct any grammar mistakes by naturally showing the correct form. Always end with a follow-up question. Match your vocabulary to the student level.\n\nCONTENT POLICY: This is a family-friendly English learning app. If the user brings up sexual topics, child abuse, graphic violence, illegal activities, hate speech, or political topics, do NOT engage. Instead respond warmly: That is not something I can chat about here — I am here to help you practice English! Let us get back to [topic]. Always stay friendly and immediately redirect."),cache_control:{type:"ephemeral"}}],
         messages:next
       })});
@@ -4676,6 +4751,7 @@ export default function App() {
 
   function handleMGCorrect() {
     if (mgResult) return;
+    setMgBuyConfirm(false);
     setMgResult("win"); setMgAnim("win");
     const gain = mgMonster?.isBoss ? 40 : 15;
     earnXp(gain); setMgScore(s=>s+gain);
@@ -4696,6 +4772,7 @@ export default function App() {
 
   function handleMGWrong() {
     if (mgResult) return;
+    setMgBuyConfirm(false);
     setMgResult("lose"); setMgAnim("shake");
     const heartsAfterWrong = mgHearts - 1;
     setMgHearts(heartsAfterWrong);
@@ -4705,6 +4782,7 @@ export default function App() {
 
   function handleMGFail() {
     if (mgResult) return;
+    setMgBuyConfirm(false);
     setMgResult("lose"); setMgAnim("shake");
     const heartsAfterFail = mgHearts - 1;
     setMgHearts(heartsAfterFail);
@@ -4749,7 +4827,7 @@ export default function App() {
     }
     setBwDefLoad(true);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:60,messages:[{role:"user",content:`Is "${word}" a real English word? If yes, reply with ONLY: {"valid":true,"def":"brief definition under 10 words"}\nIf no: {"valid":false}`}]})});
+      const res = await fetch(`${ANTHROPIC_PROXY}/v1/messages`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:60,messages:[{role:"user",content:`Is "${word}" a real English word? If yes, reply with ONLY: {"valid":true,"def":"brief definition under 10 words"}\nIf no: {"valid":false}`}]})});
       const d = await res.json();
       const text = d.content?.[0]?.text?.trim()||"{}";
       const result = JSON.parse(text.replace(/```json|```/g,"").trim());
@@ -4777,6 +4855,96 @@ export default function App() {
     <>
       {xpPop && <div style={{ position:"fixed", top:16, right:16, background:"#fbbf24", color:"#1e1b4b", fontWeight:700, borderRadius:20, padding:"7px 15px", zIndex:1000, fontSize:14, pointerEvents:"none", boxShadow:"0 4px 15px rgba(251,191,36,.5)" }}>+XP ⭐</div>}
       {bonusPop && <div style={{ position:"fixed", top: xpPop ? 58 : 16, right:16, background:bonusPop.color, color:"#fff", fontWeight:700, borderRadius:20, padding:"7px 15px", zIndex:1000, fontSize:13, pointerEvents:"none", boxShadow:"0 4px 15px rgba(0,0,0,.3)" }}>{bonusPop.msg}</div>}
+      {/* ── Answer flash overlay ── */}
+      {flashResult && (
+        <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:600,
+          background: flashResult==="correct" ? "rgba(74,222,128,.10)" : "rgba(248,113,113,.10)",
+          animation:"wsFlash .5s ease both" }}/>
+      )}
+
+      {/* Share toast */}
+      {shareToast && (
+        <div style={{ position:"fixed", bottom:100, left:"50%", transform:"translateX(-50%)", zIndex:700,
+          background:"rgba(30,27,75,.95)", border:"1px solid rgba(167,139,250,.4)", borderRadius:16,
+          padding:"12px 22px", display:"flex", alignItems:"center", gap:8,
+          animation:"wsSlideUp .3s cubic-bezier(0.22,1,0.36,1) both",
+          boxShadow:"0 8px 24px rgba(0,0,0,.4)" }}>
+          <span style={{ fontSize:18 }}>📋</span>
+          <span style={{ fontSize:14, fontWeight:700, color:"#c4b5fd" }}>Copied to clipboard!</span>
+        </div>
+      )}
+
+      {/* Persistent grain texture — always present, independent of animation transforms */}
+      <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:3, opacity:0.04,
+        backgroundImage:`url('data:image/svg+xml,<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><filter id="g"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23g)"/></svg>')` }}/>
+
+      {/* ── Global screen entrance animation ── */}
+      <style>{`
+        @keyframes wsPopIn {
+          0%   { transform: scale(0.7); opacity: 0; }
+          60%  { transform: scale(1.06); }
+          100% { transform: scale(1);   opacity: 1; }
+        }
+        @keyframes wsTabBounce {
+          0%   { transform: scale(0.75) translateY(3px); }
+          55%  { transform: scale(1.18) translateY(-2px); }
+          80%  { transform: scale(0.96) translateY(0); }
+          100% { transform: scale(1)    translateY(0); }
+        }
+        @keyframes wsXpFloat {
+          0%   { transform: translateY(0) scale(1);    opacity: 1; }
+          40%  { transform: translateY(-16px) scale(1.15); opacity: 1; }
+          100% { transform: translateY(-44px) scale(0.9);  opacity: 0; }
+        }
+        @keyframes wsFlash {
+          0%   { opacity: 0; }
+          25%  { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        @keyframes wsShake {
+          0%,100% { transform: translateX(0); }
+          20%     { transform: translateX(-8px); }
+          40%     { transform: translateX(8px); }
+          60%     { transform: translateX(-5px); }
+          80%     { transform: translateX(5px); }
+        }
+        @keyframes wsSlideUp {
+          from { opacity: 0; transform: translateY(18px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes wsSlideIn {
+          from { opacity: 0; transform: translateX(24px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+        .ws-enter { animation: wsSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both; }
+        .ws-enter-game { animation: wsSlideIn 0.3s cubic-bezier(0.22,1,0.36,1) both; }
+
+        /* Confetti particles */
+        @keyframes wsConfettiFall {
+          0%   { transform: translateY(-10px) rotate(0deg) translateX(0px);     opacity: 1; }
+          25%  { transform: translateY(25vh)  rotate(200deg) translateX(12px);  opacity: 1; }
+          50%  { transform: translateY(50vh)  rotate(400deg) translateX(-8px);  opacity: 0.9; }
+          75%  { transform: translateY(75vh)  rotate(580deg) translateX(15px);  opacity: 0.5; }
+          100% { transform: translateY(105vh) rotate(720deg) translateX(-5px);  opacity: 0; }
+        }
+        @keyframes wsConfettiFall2 {
+          0%   { transform: translateY(-10px) rotate(0deg) translateX(0px);     opacity: 1; }
+          30%  { transform: translateY(28vh)  rotate(-180deg) translateX(-14px); opacity: 1; }
+          60%  { transform: translateY(58vh)  rotate(-360deg) translateX(10px);  opacity: 0.8; }
+          100% { transform: translateY(105vh) rotate(-540deg) translateX(-8px);  opacity: 0; }
+        }
+        @keyframes wsCelebPop {
+          0%   { transform: scale(0.3) rotate(-5deg); opacity: 0; }
+          60%  { transform: scale(1.08) rotate(2deg);  opacity: 1; }
+          100% { transform: scale(1)   rotate(0deg);  opacity: 1; }
+        }
+        @keyframes wsCelebCardIn {
+          0%   { transform: scale(0.85) translateY(30px); opacity: 0; }
+          100% { transform: scale(1)    translateY(0);    opacity: 1; }
+        }
+
+      `}</style>
+
       {/* ── FIRST-TIME ONBOARDING OVERLAY ───────────────────────────────── */}
       {showOnboarding && appReady && (() => {
         const steps = [
@@ -4876,7 +5044,7 @@ export default function App() {
       })()}
 
       {showBottomNav && (
-        <div style={{ position:"fixed", bottom:0, left:0, right:0, height:62, background:"rgba(10,8,30,0.96)", backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", borderTop:"1px solid rgba(255,255,255,0.1)", display:"flex", alignItems:"stretch", zIndex:600, paddingBottom:"env(safe-area-inset-bottom)" }}>
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, height:62, background:"linear-gradient(to top, rgba(8,6,24,0.99) 0%, rgba(10,8,30,0.97) 100%)", backdropFilter:"blur(28px)", WebkitBackdropFilter:"blur(28px)", borderTop:"1px solid rgba(139,92,246,0.18)", display:"flex", alignItems:"stretch", zIndex:600, paddingBottom:"env(safe-area-inset-bottom)", boxShadow:"0 -8px 32px rgba(0,0,0,0.4)" }}>
           {[
             { id:"home",  label:"Home",  icon:"🏠",  action:() => go("home") },
             { id:"vocab", label:"Games", icon:"🎮",  action:() => go("vocab") },
@@ -4886,10 +5054,19 @@ export default function App() {
           ].map(({ id, label, icon, action }) => {
             const active = activeTab === id;
             return (
-              <button key={id} onClick={action} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:2, background:"none", border:"none", cursor:"pointer", padding:"6px 0 8px", fontFamily:"inherit", transition:"opacity .15s" }}>
-                <span style={{ fontSize:21, lineHeight:1 }}>{icon}</span>
-                <span style={{ fontSize:10, fontWeight: active ? 700 : 400, color: active ? "#a78bfa" : "rgba(255,255,255,0.4)", letterSpacing:.3 }}>{label}</span>
-                {active && <div style={{ width:18, height:3, borderRadius:2, background:"linear-gradient(90deg,#6366f1,#a78bfa)", marginTop:2 }}/>}
+              <button key={id} onClick={action} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:1, background:"none", border:"none", cursor:"pointer", padding:"5px 0 7px", fontFamily:"inherit", position:"relative" }}>
+                {/* Active pill background */}
+                {active && <div style={{ position:"absolute", inset:"3px 6px", borderRadius:12, background:"rgba(139,92,246,.22)", boxShadow:"0 0 16px rgba(139,92,246,.15)" }}/>}
+                {/* Icon — uses transform scale for smooth animation */}
+                <span key={active ? "on" : "off"} style={{ fontSize:22, lineHeight:1, position:"relative", zIndex:1,
+                  transform: active ? "scale(1)" : "scale(0.9)",
+                  filter: active ? "drop-shadow(0 0 8px rgba(167,139,250,.8))" : "none",
+                  transition:"transform .2s, filter .2s",
+                  animation: active ? "wsTabBounce .35s cubic-bezier(0.22,1,0.36,1) both" : "none" }}>{icon}</span>
+                {/* Label */}
+                <span style={{ fontSize:10, fontWeight: active ? 700 : 400, color: active ? "#c4b5fd" : "rgba(255,255,255,0.3)", letterSpacing:.2, transition:"color .2s", position:"relative", zIndex:1 }}>{label}</span>
+                {/* Indicator bar */}
+                {active && <div style={{ position:"absolute", bottom:3, left:"50%", transform:"translateX(-50%)", width:28, height:3, borderRadius:3, background:"linear-gradient(90deg,#818cf8,#a78bfa,#e879f9)", boxShadow:"0 0 10px rgba(167,139,250,.7)" }}/>}
               </button>
             );
           })}
@@ -4937,20 +5114,53 @@ export default function App() {
         </div>
       )}
 
-      {streakMilestone && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.93)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:800, padding:"0 28px", textAlign:"center" }}>
-          <style>{"@keyframes milePop{0%{transform:scale(0) rotate(-10deg)}65%{transform:scale(1.25) rotate(4deg)}100%{transform:scale(1) rotate(0)}}"}</style>
-          <div style={{ fontSize:90, marginBottom:16, animation:"milePop .6s cubic-bezier(.36,.07,.19,.97) both" }}>{streakMilestone.emoji}</div>
-          <div style={{ fontSize:12, fontWeight:700, color:"#fbbf24", letterSpacing:2.5, textTransform:"uppercase", marginBottom:10 }}>Milestone Reached!</div>
-          <div style={{ fontSize:36, fontWeight:900, color:"#fff", marginBottom:8 }}>{streakMilestone.badge} Streak!</div>
-          <div style={{ fontSize:15, color:"#c4b5fd", lineHeight:1.65, marginBottom:28, maxWidth:280 }}>{streakMilestone.msg}</div>
-          <div style={{ background:"rgba(251,191,36,.12)", border:"2px solid rgba(251,191,36,.6)", borderRadius:22, padding:"18px 32px", marginBottom:28 }}>
-            <div style={{ fontSize:11, color:"#fde68a", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", marginBottom:6 }}>One-Time Bonus</div>
-            <div style={{ fontSize:48, fontWeight:900, color:"#fbbf24" }}>+{streakMilestone.xp} XP</div>
+      {streakMilestone && (() => {
+        const colors = ["#a78bfa","#f472b6","#fbbf24","#4ade80","#60a5fa","#fb923c","#e879f9","#34d399"];
+        const shapes = Array.from({length:36}, (_,i) => ({
+          left: (i*29+7) % 100,
+          w:    5 + (i%5)*4,
+          h:    7 + (i%4)*5,
+          circle: i%4===0,
+          color: colors[i % colors.length],
+          dur:   1.6 + (i%6)*0.3,
+          delay: (i%10)*0.08,
+          anim:  i%2===0 ? "wsConfettiFall" : "wsConfettiFall2",
+        }));
+        return (
+          <div style={{ position:"fixed", inset:0, background:"rgba(5,3,20,.97)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:800, padding:"0 24px", textAlign:"center", overflow:"hidden" }}>
+            {/* Confetti — two animation variants for natural drift */}
+            {shapes.map((p,i) => (
+              <div key={i} style={{ position:"absolute", left:p.left+"%", top:"-24px", width:p.w+"px", height:p.h+"px", borderRadius:p.circle?"50%":3, background:p.color, animation:`${p.anim} ${p.dur}s ${p.delay}s ease-in both`, opacity:0.92 }}/>
+            ))}
+
+            {/* Card with entrance animation */}
+            <div style={{ position:"relative", zIndex:1, animation:"wsCelebCardIn .5s cubic-bezier(0.22,1,0.36,1) .1s both", width:"100%", maxWidth:340 }}>
+              <div style={{ fontSize:96, marginBottom:12, animation:"wsCelebPop .65s cubic-bezier(.34,1.56,.64,1) .15s both", filter:`drop-shadow(0 0 32px rgba(251,191,36,.65))`, display:"block" }}>{streakMilestone.emoji}</div>
+              <div style={{ fontSize:11, fontWeight:800, color:"#fbbf24", letterSpacing:3, textTransform:"uppercase", marginBottom:8 }}>🎉 Milestone Unlocked</div>
+              <div style={{ fontSize:38, fontWeight:900, color:"#fff", marginBottom:10, lineHeight:1.1 }}>{streakMilestone.badge} Streak</div>
+              <div style={{ fontSize:15, color:"rgba(196,181,253,.85)", lineHeight:1.7, marginBottom:28, maxWidth:300, margin:"0 auto 28px" }}>{streakMilestone.msg}</div>
+
+              {/* XP bonus — big and exciting */}
+              <div style={{ background:"linear-gradient(135deg,rgba(251,191,36,.18),rgba(245,158,11,.08))", border:"2px solid rgba(251,191,36,.5)", borderRadius:24, padding:"16px 28px", marginBottom:24, animation:"wsPopIn .5s cubic-bezier(0.22,1,0.36,1) .4s both" }}>
+                <div style={{ fontSize:10, color:"#fde68a", fontWeight:800, letterSpacing:2.5, textTransform:"uppercase", marginBottom:6 }}>One-Time Bonus</div>
+                <div style={{ fontSize:52, fontWeight:900, color:"#fbbf24", lineHeight:1, letterSpacing:-1 }}>+{streakMilestone.xp}</div>
+                <div style={{ fontSize:14, color:"rgba(253,230,138,.6)", fontWeight:700, marginTop:2 }}>XP ⭐</div>
+              </div>
+
+              <div style={{ display:"flex", gap:10, width:"100%" }}>
+                <button onClick={() => shareAchievement(streakMilestone.days, streakMilestone.emoji)}
+                  style={{ flex:1, background:"rgba(255,255,255,.1)", border:"1.5px solid rgba(255,255,255,.2)", borderRadius:18, color:"#fff", cursor:"pointer", fontSize:15, fontWeight:700, fontFamily:"inherit", padding:"15px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+                  <span>📤</span> Share
+                </button>
+                <button onClick={claimMilestone}
+                  style={{ flex:2, background:"linear-gradient(135deg,#f59e0b,#f97316)", border:"none", borderRadius:18, color:"#fff", cursor:"pointer", fontSize:16, fontWeight:800, fontFamily:"inherit", padding:"15px 0", boxShadow:"0 8px 24px rgba(249,115,22,.4)", letterSpacing:.3 }}>
+                  Claim Reward 🎉
+                </button>
+              </div>
+            </div>
           </div>
-          <button onClick={claimMilestone} style={{ ...S.btn("linear-gradient(135deg,#f59e0b,#ef4444)"), fontSize:18, padding:"16px 32px", width:"auto" }}>Claim Reward 🎉</button>
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 
@@ -4981,9 +5191,13 @@ export default function App() {
     if (profileStep === "location") return (
       <div style={{ ...S.wrap("linear-gradient(160deg,#1e1b4b,#3730a3,#312e81)"), display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"100vh", padding:"0 32px", textAlign:"center" }}>
         <div style={{ fontSize:26, fontWeight:800, color:"#fff", marginBottom:6, lineHeight:1.4 }}>Where are you from,</div>
-        <div style={{ fontSize:30, fontWeight:900, color:"#a78bfa", marginBottom:10 }}>{profileNameInp}?</div>
-        <div style={{ fontSize:13, color:"rgba(196,181,253,.6)", marginBottom:24, lineHeight:1.6 }}>
-          🌤️ Used to personalise your daily weather greeting
+        <div style={{ fontSize:30, fontWeight:900, color:"#a78bfa", marginBottom:18 }}>{profileNameInp}?</div>
+        <div style={{ background:"rgba(255,255,255,.07)", borderRadius:18, padding:"14px 16px", marginBottom:24, textAlign:"left" }}>
+          <div style={{ fontSize:13, color:"#e0e7ff", lineHeight:1.9 }}>
+            <div>🌐 <strong>Translate words</strong> into your own language instantly</div>
+            <div>💬 <strong>Emily</strong> tailors conversations to your culture &amp; country</div>
+            <div>🌤️ Personalised <strong>daily greeting</strong> with local weather</div>
+          </div>
         </div>
         <input value={profileLocInp} onChange={e => { setProfileLocInp(e.target.value); setProfileLocError(null); setProfileLocConfirm(null); }}
           onKeyDown={e => e.key==="Enter" && profileLocInp.trim() && handleFinishProfile()}
@@ -5002,13 +5216,16 @@ export default function App() {
           setProfileName(name);
           setProfileLocation("");
           try { await window.storage.set("ws_profile", JSON.stringify({ name, city:"", country:"" })); } catch {}
-          setScreen("placement");
+          if (profileSource === "settings") { setProfileSource("onboarding"); setScreen("settings"); }
+          else setScreen("placement");
         }} style={{ background:"rgba(255,255,255,.08)", border:"1.5px solid rgba(196,181,253,.25)", borderRadius:12, color:"rgba(196,181,253,.7)", cursor:"pointer", fontSize:14, fontFamily:"inherit", marginTop:14, padding:"11px 20px", width:"100%" }}>
           Skip for now →
         </button>
-        <button onClick={() => { setProfileStep("name"); setProfileLocError(null); setProfileLocConfirm(null); }}
-          style={{ background:"none", border:"none", color:"rgba(196,181,253,.45)", cursor:"pointer", fontSize:13, fontFamily:"inherit", marginTop:10, padding:"6px" }}>
-          ← Back
+        <button onClick={() => {
+          if (profileSource === "settings") { setProfileSource("onboarding"); setScreen("settings"); }
+          else { setProfileStep("name"); setProfileLocError(null); setProfileLocConfirm(null); }
+        }} style={{ background:"none", border:"none", color:"rgba(196,181,253,.45)", cursor:"pointer", fontSize:13, fontFamily:"inherit", marginTop:10, padding:"6px" }}>
+          {profileSource === "settings" ? "← Cancel" : "← Back"}
         </button>
       </div>
     );
@@ -5111,7 +5328,7 @@ export default function App() {
     ];
     return (
       <>{overlays}
-        <div style={{ ...S.wrap("linear-gradient(160deg,#1e1b4b,#3730a3,#312e81)", showBottomNav ? 80 : 24), overflowY:"auto" }}>
+        <div key={screenKey} className="ws-enter" style={{ ...S.wrap("linear-gradient(160deg,#1e1b4b,#3730a3,#312e81)", showBottomNav ? 80 : 24), overflowY:"auto" }}>
           <div style={S.hdr}>
             <button style={S.back} onClick={() => go("home")}>← Home</button>
             <div style={{ flex:1, textAlign:"center", fontWeight:800, fontSize:17 }}>My Progress</div>
@@ -5264,7 +5481,7 @@ export default function App() {
   // ── SETTINGS ─────────────────────────────────────────────────────────────────
   if (screen === "settings") {
     return (<>{overlays}
-      <div style={{ ...S.wrap("linear-gradient(160deg,#1e1b4b,#3730a3,#312e81)", showBottomNav ? 80 : 24), overflowY:"auto" }}>
+      <div key={screenKey} className="ws-enter" style={{ ...S.wrap("linear-gradient(160deg,#1e1b4b,#3730a3,#312e81)", showBottomNav ? 80 : 24), overflowY:"auto" }}>
         <div style={S.hdr}>
           <button style={S.back} onClick={() => go("home")}>← Home</button>
           <div style={{ flex:1, textAlign:"center", fontWeight:800, fontSize:17 }}>Settings</div>
@@ -5275,7 +5492,7 @@ export default function App() {
           {/* Account */}
           <div style={{ fontSize:11, fontWeight:700, color:"rgba(255,255,255,.3)", textTransform:"uppercase", letterSpacing:1.5, marginBottom:10, paddingLeft:4 }}>Account</div>
           {[
-            { icon:"👤", label:profileName||"Your name",  sub:"Update your name and location",  action:() => setScreen("profile"), danger:false },
+            { icon:"👤", label:profileName||"Your name",  sub:"Update your name and location",  action:() => { setProfileSource("settings"); setProfileStep("name"); setProfileNameInp(profileName||""); setScreen("profile"); }, danger:false },
             { icon:"🎓", label:"Retake placement quiz",    sub:"Reassess your current level",      action:retakePlacement,             danger:false },
           ].map(({icon,label,sub,action,danger}) => (
             <button key={label} onClick={action} style={{ width:"100%", display:"flex", alignItems:"center", gap:14, background:"rgba(255,255,255,.06)", border:"none", borderRadius:16, padding:"15px 16px", cursor:"pointer", fontFamily:"inherit", textAlign:"left", marginBottom:10 }}>
@@ -5335,7 +5552,7 @@ export default function App() {
   }
 
 
-  if (screen === "home") return (<>{overlays}<div style={{ ...S.wrap(undefined, showBottomNav ? 72 : 0), overflowY:"auto" }}>
+  if (screen === "home") return (<>{overlays}<div key={screenKey} className="ws-enter" style={{ ...S.wrap(undefined, showBottomNav ? 72 : 0), overflowY:"auto" }}>
 
     <div style={{ padding:"28px 20px 0", textAlign:"center", position:"relative" }}>
       <button onClick={() => setScreen("settings")} style={{ position:"absolute", top:0, right:0, background:"rgba(255,255,255,.08)", border:"none", borderRadius:12, color:"rgba(196,181,253,.7)", fontSize:16, cursor:"pointer", fontFamily:"inherit", padding:"6px 10px", lineHeight:1 }}>⚙️</button>
@@ -5360,8 +5577,10 @@ export default function App() {
         : streak === 1 ? "Day 1 done! Come back tomorrow to keep it going 💪"
         : streak < 4  ? `${streak} days in a row — momentum is building! 🔥`
         : streak < 7  ? `${streak} days strong — you're forming a real habit! 🔥`
-        : streak < 14 ? `One week strong! You're serious about this 🥉`
-        : streak < 30 ? `${streak} days! Two weeks of real consistency 🥈`
+        : streak === 7 ? "One full week! You're serious about this 🥉"
+        : streak < 14 ? `${streak} days strong — keep building on that first week! 🔥`
+        : streak === 14 ? "Two weeks! Incredible consistency 🥈"
+        : streak < 30 ? `${streak} days of real, consistent effort 🥈`
         : streak < 60 ? `${streak} days! You're in the top tier of learners 🥇`
         : streak < 100 ? `${streak} days! English is part of your daily life now 💎`
         : `${streak} days! You are absolutely legendary 🏆`;
@@ -5390,8 +5609,8 @@ export default function App() {
                   {streak===0?"✨":streak<7?"🔥":streak<30?highestBadge?.emoji||"🔥":"🔥"}
                 </span>
                 <div>
-                  <div style={{ fontSize:52, fontWeight:900, lineHeight:1, color:streak>0?"#fbbf24":"#e0e7ff", letterSpacing:-2 }}>{streak}</div>
-                  <div style={{ fontSize:12, color:"rgba(255,255,255,.45)", fontWeight:600, marginTop:2 }}>day streak</div>
+                  <div style={{ fontSize:streak===0?36:52, fontWeight:900, lineHeight:1, color:streak>0?"#fbbf24":"rgba(196,181,253,.5)", letterSpacing:-2 }}>{streak===0?"—":streak}</div>
+                  <div style={{ fontSize:12, color:"rgba(255,255,255,.45)", fontWeight:600, marginTop:2 }}>{streak === 0 ? "start your streak!" : "day streak"}</div>
                 </div>
               </div>
               <div style={{ textAlign:"center" }}>
@@ -5455,15 +5674,23 @@ export default function App() {
               </div>
             </div>
 
-            {/* Secondary: XP + Level + tap hint */}
+            {/* Secondary: XP + Level + share + tap hint */}
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
               <div style={{ display:"flex", gap:8 }}>
                 <div style={{ background:"rgba(0,0,0,.2)", borderRadius:10, padding:"5px 10px", fontSize:11, fontWeight:700, color:"#e0e7ff" }}>⭐ {xp.toLocaleString()} XP</div>
                 <div style={{ background:"rgba(0,0,0,.2)", borderRadius:10, padding:"5px 10px", fontSize:11, fontWeight:700, color:lvlColor }}>{level}</div>
                 {xpNext && <div style={{ background:"rgba(0,0,0,.2)", borderRadius:10, padding:"5px 10px", fontSize:10, color:"rgba(255,255,255,.4)" }}>{xpNext-xp} to next</div>}
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:"rgba(167,139,250,.5)", fontWeight:600 }}>
-                <span>📊</span><span>Progress</span><span style={{ fontSize:10 }}>→</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                {streak >= 7 && practiced && (
+                  <button onClick={e => { e.stopPropagation(); shareAchievement(streak, streak>=365?"🏆":streak>=180?"👑":streak>=90?"💎":streak>=60?"🥇":streak>=30?"🥈":streak>=10?"🔥":"🥉"); }}
+                    style={{ background:"rgba(167,139,250,.15)", border:"1px solid rgba(167,139,250,.3)", borderRadius:10, padding:"5px 10px", fontSize:11, fontWeight:700, color:"#c4b5fd", cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:4 }}>
+                    <span>📤</span><span>Share</span>
+                  </button>
+                )}
+                <div style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:"rgba(167,139,250,.5)", fontWeight:600 }}>
+                  <span>📊</span><span>Progress</span><span style={{ fontSize:10 }}>→</span>
+                </div>
               </div>
             </div>
 
@@ -5559,7 +5786,7 @@ export default function App() {
     if (isSaturday) {
       const id = getIdiomOfWeek(level);
       const ic = idiomContent;
-      return (<>{overlays}<div style={S.wrap("linear-gradient(160deg,#3b1f8c,#5b21b6,#7c3aed)", showBottomNav ? 72 : 0)}>
+      return (<>{overlays}<div key={screenKey} className="ws-enter" style={S.wrap("linear-gradient(160deg,#3b1f8c,#5b21b6,#7c3aed)", showBottomNav ? 72 : 0)}>
         <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button></div>
         <div style={{ padding:"0 20px 20px", textAlign:"center" }}>
           <div style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:2, color:"#c4b5fd", marginBottom:10 }}>🗓️ Idiom of the Week</div>
@@ -5613,7 +5840,7 @@ export default function App() {
 
     // Word of the Day
     const w = getWotd(level);
-    return (<>{overlays}<div style={S.wrap("linear-gradient(160deg,#1e3a8a,#1d4ed8,#3b82f6)", showBottomNav ? 72 : 0)}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter" style={S.wrap("linear-gradient(160deg,#1e3a8a,#1d4ed8,#3b82f6)", showBottomNav ? 72 : 0)}>
       <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button></div>
       <div style={{ padding:"0 20px 20px", textAlign:"center" }}>
         <div style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:2, color:"#93c5fd", marginBottom:12 }}>📖 Word of the Day</div>
@@ -5711,7 +5938,7 @@ export default function App() {
 
   // ── VOCAB GAMES MENU ─────────────────────────────────────────────────────────
   if (screen === "vocab" && !game) return (
-    <>{overlays}<div style={S.wrap(undefined, showBottomNav ? 72 : 0)}>
+    <>{overlays}<div key={screenKey} className="ws-enter" style={S.wrap(undefined, showBottomNav ? 72 : 0)}>
       <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button></div>
       <div style={{ padding:"0 20px 10px" }}>
         <div style={{ fontSize:26, fontWeight:800, marginBottom:4 }}>🎮 Vocab Games</div>
@@ -5735,13 +5962,13 @@ export default function App() {
           { id:"scramble",  ic:"🔤", title:"Word Scramble",     desc:"Unscramble letters to find the hidden word",         g:"linear-gradient(135deg,#4338ca,#6366f1)" },
           { id:"flashcard", ic:"🃏", title:"Flashcard Quiz",     desc:"Test your word meanings with multiple choice",        g:"linear-gradient(135deg,#be185d,#ec4899)" },
           { id:"fillblank", ic:"🧩", title:"Fill in the Blank",  desc:"Choose the word that completes each sentence",        g:"linear-gradient(135deg,#b45309,#f59e0b)" },
-          { id:"bookworm",  ic:"📚", title:"Bookworm",           desc:"Tap adjacent letters to spell words on the grid",     g:"linear-gradient(135deg,#065f46,#10b981)" },
+          { id:"bookworm",  ic:"📚", title:"Bookworm",           desc:"Tap adjacent letters to spell words on the grid",     g:"linear-gradient(135deg,#011510,#10b981)" },
           { id:"monster",   ic:"👹", title:"Monster Gauntlet",   desc:"Battle monsters with vocab challenges floor by floor", g:"linear-gradient(135deg,#991b1b,#ef4444)" },
         ].map(g => (
           <div key={g.id} onClick={() => {
             if (g.id==="bookworm") { setBwGrid(makeGrid(level)); setBwSel([]); setBwScore(0); setBwWords([]); setBwDef(null); setBwMsg(null); }
-            if (g.id==="monster") { setMgFloor(1); setMgHearts(3); setMgScore(0); setMgResult(null); setMgSel(null); setMgInput(""); setMgAnim(null); const types=["goblin","zombie","dracula","dragon","ghost"]; const t=types[Math.floor(Math.random()*types.length)]; const ch=mgGenChallenge(t); setMgMonster({...MONSTERS[t],...ch,monsterType:t,isBoss:false,floor:1}); if(t==="dracula"){let tm=15;setMgTimer(tm);mgTimerRef.current=setInterval(()=>{tm--;setMgTimer(tm);if(tm<=0){clearInterval(mgTimerRef.current);handleMGFail();}},1000);}else setMgTimer(null); }
-            setGame(g.id);
+            if (g.id==="monster") { setMgFloor(1); setMgHearts(3); setMgScore(0); setMgResult(null); setMgSel(null); setMgInput(""); setMgBuyConfirm(false); setMgAnim(null); const types=["goblin","zombie","dracula","dragon","ghost"]; const t=types[Math.floor(Math.random()*types.length)]; const ch=mgGenChallenge(t); setMgMonster({...MONSTERS[t],...ch,monsterType:t,isBoss:false,floor:1}); if(t==="dracula"){let tm=15;setMgTimer(tm);mgTimerRef.current=setInterval(()=>{tm--;setMgTimer(tm);if(tm<=0){clearInterval(mgTimerRef.current);handleMGFail();}},1000);}else setMgTimer(null); }
+            setScreenKey(k=>k+1); setGame(g.id);
           }} style={{ ...S.card(g.g), display:"flex", alignItems:"center", gap:16, marginBottom:14 }}>
             <div style={{ fontSize:38 }}>{g.ic}</div>
             <div>
@@ -5756,7 +5983,7 @@ export default function App() {
 
   // ── REVIEW MENU ───────────────────────────────────────────────────────────────
   if (screen === "review" && !game) return (
-    <>{overlays}<div style={S.wrap("linear-gradient(160deg,#431407,#7c2d12,#92400e)")}>
+    <>{overlays}<div key={screenKey} className="ws-enter" style={S.wrap("linear-gradient(160deg,#431407,#7c2d12,#92400e)")}>
       <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button></div>
       <div style={{ padding:"0 20px 10px" }}>
         <div style={{ fontSize:26, fontWeight:800 }}>📖 Review &amp; Strengthen</div>
@@ -5796,31 +6023,51 @@ export default function App() {
 
   // ── SCRAMBLE ─────────────────────────────────────────────────────────────────
   if (game === "scramble") {
-    const words = businessMode ? BUSINESS_PACK.words : SCRAMBLE_WORDS[level];
-    const deck  = businessMode ? bizDeckW : scDeck;
-    const word  = deckItem(words, scIdx, deck);
-    const scTotal = deck.current.length || words.length;
+    const _scMaxLen = { Beginner:7, Intermediate:9, Advanced:11, Proficiency:99 }[level] || 99;
+    const _scRaw    = businessMode ? BUSINESS_PACK.words : SCRAMBLE_WORDS[level];
+    const words     = businessMode ? _scRaw : _scRaw.filter(w => w.length <= _scMaxLen);
+    const deck      = businessMode ? bizDeckW : scDeck;
+    const word      = deckItem(words, scIdx, deck);
+    const scTotal   = deck.current.length || words.length;
     const hint = businessMode ? word.hint : (word.length+" letters · starts with "+word[0]);
     const levelLabel = businessMode ? "💼 Business" : level;
-    return (<>{overlays}<div style={S.wrap()}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter-game" style={S.wrap("linear-gradient(160deg,#0d0020,#2e0060,#5b21b6)")}>
       <div style={S.hdr}>
-        <button style={S.back} onClick={() => setGame(null)}>{reviewMode?"← Review":"← Games"}</button>
+        <button style={S.back} onClick={() => { if(speedTimerRef.current) clearInterval(speedTimerRef.current); setSpeedCount(null); setGame(null); }}>{reviewMode?"← Review":"← Games"}</button>
         <span style={{ fontSize:13, color:"#c4b5fd" }}>{(scIdx%scTotal)+1}/{scTotal} · {levelLabel}</span>
       </div>
       <div style={{ padding:"0 20px" }}>
         <div style={{ fontSize:22, fontWeight:800, textAlign:"center", marginBottom:4 }}>🔤 Word Scramble</div>
-        <div style={{ textAlign:"center", color:"#c4b5fd", fontSize:13, marginBottom:22 }}>Rearrange the letters — answer in 8s for a speed bonus!</div>
-        <div style={{ background:"rgba(255,255,255,.08)", borderRadius:22, padding:"22px 20px", marginBottom:20, textAlign:"center" }}>
-          <div style={{ fontSize:13, opacity:.65, marginBottom:10 }}>💡 {hint}</div>
-          <div style={{ fontSize:32, fontWeight:900, letterSpacing:6, color:"#fbbf24" }}>{scWord}</div>
+        <div style={{ textAlign:"center", fontSize:13, marginBottom:22, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          <span style={{ color:"#c4b5fd" }}>Rearrange the letters</span>
+          {speedCount !== null && speedCount > 0 && !scResult && (
+            <span style={{ background: speedCount <= 3 ? "rgba(248,113,113,.2)" : "rgba(251,191,36,.15)", border:"1px solid "+(speedCount <= 3 ? "#f87171" : "#fbbf24"), borderRadius:20, padding:"2px 10px", fontWeight:700, color: speedCount <= 3 ? "#f87171" : "#fbbf24", fontSize:12 }}>
+              ⚡ {speedCount}s
+            </span>
+          )}
+          {(speedCount === 0 || scResult) && <span style={{ color:"rgba(196,181,253,.5)" }}>answer in 8s for a speed bonus!</span>}
+        </div>
+        <div style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(167,139,250,.2)", borderRadius:22, padding:"22px 20px 18px", marginBottom:20, textAlign:"center" }}>
+          <div style={{ fontSize:14, fontWeight:700, color:"#c4b5fd", opacity:.9, marginBottom:14 }}>💡 {hint}</div>
+          {/* Tile-style scrambled letters */}
+          <div style={{ display:"flex", flexWrap:"wrap", gap:7, justifyContent:"center" }}>
+            {scWord.split("").map((ch, idx) => (
+              <div key={idx} style={{ minWidth:46, height:54, borderRadius:12, background:"linear-gradient(160deg,rgba(255,255,255,.16),rgba(255,255,255,.06))", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, fontWeight:900, color:"#fff", border:"1.5px solid rgba(255,255,255,.25)", boxShadow:"0 4px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.2)", padding:"0 8px", letterSpacing:0 }}>{ch}</div>
+            ))}
+          </div>
         </div>
         <input value={scInput} onChange={e => setScInput(e.target.value.toUpperCase())}
           onKeyDown={e => e.key==="Enter"&&!scResult&&checkSc()}
-          placeholder="Type your answer…" disabled={!!scResult} style={S.inp}/>
+          placeholder="Type your answer…" disabled={!!scResult} style={{ ...S.inp, fontSize:22, fontWeight:800, letterSpacing:3, borderColor:"rgba(167,139,250,.4)" }}/>
         {!scResult && <button onClick={checkSc} style={S.btn("linear-gradient(90deg,#6366f1,#a78bfa)")}>Check Answer ✓</button>}
         {scResult && <>
-          <div style={{ background: scResult==="correct"?"rgba(74,222,128,.15)":"rgba(248,113,113,.15)", border:"1.5px solid "+(scResult==="correct"?"#4ade80":"#f87171"), borderRadius:18, padding:16, marginBottom:14, textAlign:"center" }}>
-            <div style={{ fontSize:22, marginBottom:4 }}>{scResult==="correct"?"✅ Correct! +"+(reviewMode?5:10)+" XP":"❌ The word was: "+(businessMode?word.word:word)}</div>
+          <div style={{ background: scResult==="correct"?"rgba(74,222,128,.15)":"rgba(248,113,113,.15)", border:"1.5px solid "+(scResult==="correct"?"#4ade80":"#f87171"), borderRadius:18, padding:16, marginBottom:14, textAlign:"center", animation: scResult==="correct" ? "wsPopIn .35s cubic-bezier(0.22,1,0.36,1) both" : "wsShake .4s ease both" }}>
+            {scResult==="correct" && (
+              <div style={{ fontSize:18, fontWeight:900, color:"#4ade80", animation:"wsXpFloat .9s ease both", position:"relative" }}>
+                +{reviewMode?5:10} XP ⭐
+              </div>
+            )}
+            <div style={{ fontSize:22, marginBottom:4 }}>{scResult==="correct"?"✅ Correct!":"❌ The word was: "+(businessMode?word.word:word)}</div>
             {businessMode && scResult!=="correct" && <div style={{ fontSize:13, color:"#fca5a5", marginTop:4 }}>{word.definition}</div>}
             <div style={{ fontSize:13, color: scResult==="correct"?"#86efac":"#fca5a5", marginTop:4 }}>{scResult==="correct"?"Well done! Keep going 🚀":"Don't worry — you'll get it next time!"}</div>
           </div>
@@ -5837,14 +6084,22 @@ export default function App() {
     const f = deckItem(cards, flIdx, deck);
     const flTotal = deck.current.length || cards.length;
     const levelLabel = businessMode ? "💼 Business" : level;
-    return (<>{overlays}<div style={S.wrap("linear-gradient(160deg,#831843,#9d174d,#be185d)")}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter-game" style={S.wrap("linear-gradient(160deg,#000c30,#001166,#1d4ed8)")}>
       <div style={S.hdr}>
-        <button style={S.back} onClick={() => { setGame(null); setFlImage(null); }}>{reviewMode?"← Review":"← Games"}</button>
+        <button style={S.back} onClick={() => { if(speedTimerRef.current) clearInterval(speedTimerRef.current); setGame(null); setFlImage(null); }}>{reviewMode?"← Review":"← Games"}</button>
         <span style={{ fontSize:13, color:"#fbcfe8" }}>{(flIdx%flTotal)+1}/{flTotal} · {levelLabel}</span>
       </div>
       <div style={{ padding:"0 20px" }}>
         <div style={{ fontSize:22, fontWeight:800, textAlign:"center", marginBottom:4 }}>🃏 Flashcard Quiz</div>
-        <div style={{ textAlign:"center", color:"#fbcfe8", fontSize:13, marginBottom:22 }}>What does this word mean? Answer in 8s for a speed bonus!</div>
+        <div style={{ textAlign:"center", fontSize:13, marginBottom:22, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+          <span style={{ color:"#fbcfe8" }}>What does this word mean?</span>
+          {speedCount !== null && speedCount > 0 && flSel === null && (
+            <span style={{ background: speedCount <= 3 ? "rgba(248,113,113,.2)" : "rgba(251,191,36,.15)", border:"1px solid "+(speedCount <= 3 ? "#f87171" : "#fbbf24"), borderRadius:20, padding:"2px 10px", fontWeight:700, color: speedCount <= 3 ? "#f87171" : "#fbbf24", fontSize:12 }}>
+              ⚡ {speedCount}s
+            </span>
+          )}
+          {(speedCount === 0 || flSel !== null) && <span style={{ color:"rgba(251,207,232,.5)" }}>answer in 8s for a speed bonus!</span>}
+        </div>
         <div style={{ background:"rgba(255,255,255,.1)", borderRadius:22, padding:"28px 20px", marginBottom:20, textAlign:"center" }}>
           {flImage && f.type === "noun" && (
             <div style={{ display:"flex", justifyContent:"center", marginBottom:14 }}>
@@ -5855,14 +6110,25 @@ export default function App() {
           )}
           <div style={{ fontSize:36, fontWeight:900 }}>{f.word}</div>
         </div>
-        {f.options.map((opt,i) => (
-          <button key={i} onClick={() => pickFl(i)} disabled={flSel!==null}
-            style={S.opt(flSel===null?null:i===f.answer?"correct":flSel===i?"wrong":null)}>
-            {opt}
-          </button>
-        ))}
+        {f.options.map((opt,i) => {
+          const isCorrect = flSel!==null && i===f.answer;
+          const isWrong   = flSel!==null && flSel===i && i!==f.answer;
+          return (
+            <button key={i} onClick={() => pickFl(i)} disabled={flSel!==null}
+              style={{ ...S.opt(flSel===null?null:i===f.answer?"correct":flSel===i?"wrong":null),
+                animation: isCorrect ? "wsPopIn .45s cubic-bezier(0.22,1,0.36,1) both"
+                          : isWrong   ? "wsShake .45s ease both" : "none",
+                opacity: flSel!==null && !isCorrect && !isWrong ? 0.4 : 1,
+                transition:"opacity .25s" }}>
+              {isCorrect && <span style={{ marginRight:6 }}>✅</span>}
+              {isWrong   && <span style={{ marginRight:6 }}>❌</span>}
+              {opt}
+            </button>
+          );
+        })}
         {flSel !== null && <>
-          <div style={{ textAlign:"center", fontSize:18, margin:"8px 0 12px" }}>{flSel===f.answer?"🎉 Correct! +"+(reviewMode?5:10)+" XP":"Not quite — study this one!"}</div>
+          {flSel===f.answer && <div style={{ textAlign:"center", fontSize:18, fontWeight:900, color:"#4ade80", animation:"wsXpFloat .9s ease both", margin:"8px 0 4px" }}>+{reviewMode?5:10} XP ⭐</div>}
+          <div style={{ textAlign:"center", fontSize:18, margin:"4px 0 12px" }}>{flSel===f.answer?"🎉 Correct!":"Not quite — study this one!"}</div>
           {!flTranslation ? (
             <button onClick={() => translateWord(f.word, setFlTranslation, setFlTranslating)} disabled={flTranslating}
               style={{ background:"none", border:"1.5px solid rgba(255,255,255,.18)", borderRadius:20, padding:"7px 18px", color:"#fbcfe8", cursor:"pointer", fontSize:13, fontFamily:"inherit", width:"100%", marginBottom:12, opacity:flTranslating?.6:1 }}>
@@ -5887,9 +6153,9 @@ export default function App() {
     const fbTotal = deck.current.length || fills.length;
     const levelLabel = businessMode ? "💼 Business" : level;
     const [pre, post] = fb.sentence.split("___");
-    return (<>{overlays}<div style={S.wrap("linear-gradient(160deg,#78350f,#92400e,#b45309)")}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter-game" style={S.wrap("linear-gradient(160deg,#0a1f1a,#0d4a3a,#047857)", showBottomNav ? 72 : 0)}>
       <div style={S.hdr}>
-        <button style={S.back} onClick={() => setGame(null)}>{reviewMode?"← Review":"← Games"}</button>
+        <button style={S.back} onClick={() => { if(speedTimerRef.current) clearInterval(speedTimerRef.current); setSpeedCount(null); setGame(null); }}>{reviewMode?"← Review":"← Games"}</button>
         <span style={{ fontSize:13, color:"#fde68a" }}>{(fbIdx%fbTotal)+1}/{fbTotal} · {levelLabel}</span>
       </div>
       <div style={{ padding:"0 20px" }}>
@@ -5898,15 +6164,29 @@ export default function App() {
         <div style={{ background:"rgba(255,255,255,.1)", borderRadius:22, padding:"22px 20px", marginBottom:20, fontSize:18, lineHeight:1.8, textAlign:"center" }}>
           {pre}<span style={{ background:"rgba(251,191,36,.3)", borderRadius:8, padding:"2px 14px", fontWeight:700, color:"#fbbf24", letterSpacing:2 }}>___</span>{post}
         </div>
-        {fb.options.map((opt,i) => (
-          <button key={i} onClick={() => pickFb(i)} disabled={fbSel!==null}
-            style={S.opt(fbSel===null?null:i===fb.answer?"correct":fbSel===i?"wrong":null)}>
-            {opt}
-          </button>
-        ))}
+        {fb.options.map((opt,i) => {
+          const isCorrect = fbSel!==null && i===fb.answer;
+          const isWrong   = fbSel!==null && fbSel===i && i!==fb.answer;
+          return (
+            <button key={i} onClick={() => pickFb(i)} disabled={fbSel!==null}
+              style={{ ...S.opt(fbSel===null?null:i===fb.answer?"correct":fbSel===i?"wrong":null),
+                animation: isCorrect ? "wsPopIn .45s cubic-bezier(0.22,1,0.36,1) both"
+                          : isWrong   ? "wsShake .45s ease both" : "none",
+                opacity: fbSel!==null && !isCorrect && !isWrong ? 0.4 : 1 }}>
+              {isCorrect && <span style={{ marginRight:6 }}>✅</span>}
+              {isWrong   && <span style={{ marginRight:6 }}>❌</span>}
+              {opt}
+            </button>
+          );
+        })}
         {fbSel !== null && <>
-          <div style={{ textAlign:"center", fontSize:18, margin:"8px 0 10px" }}>{fbSel===fb.answer?"✅ Correct! +"+(reviewMode?5:10)+" XP":"Keep practicing — you've got this!"}</div>
-          {fbSel===fb.answer && <div style={{ background:"rgba(74,222,128,.1)", border:"1px solid rgba(74,222,128,.3)", borderRadius:14, padding:"12px 16px", marginBottom:12, fontSize:14, color:"#d1fae5", lineHeight:1.6 }}>📝 {fb.explanation}</div>}
+          {fbSel===fb.answer && <div style={{ textAlign:"center", fontSize:18, fontWeight:900, color:"#4ade80", animation:"wsXpFloat .9s ease both", margin:"8px 0 4px" }}>+{reviewMode?5:10} XP ⭐</div>}
+          <div style={{ textAlign:"center", fontSize:18, margin:"4px 0 10px" }}>{fbSel===fb.answer?"✅ Correct!":"Keep practicing — you've got this!"}</div>
+          {fbSel !== null && (
+            <div style={{ background: fbSel===fb.answer?"rgba(74,222,128,.1)":"rgba(255,255,255,.07)", animation:"wsPopIn .35s cubic-bezier(0.22,1,0.36,1) both", border:"1px solid "+(fbSel===fb.answer?"rgba(74,222,128,.3)":"rgba(255,255,255,.15)"), borderRadius:14, padding:"12px 16px", marginBottom:12, fontSize:14, color: fbSel===fb.answer?"#d1fae5":"#e0e7ff", lineHeight:1.6 }}>
+              {fbSel===fb.answer ? "📝" : "💡"} {fb.explanation}
+            </div>
+          )}
           <button onClick={() => { deckNext(fills,fbIdx,deck,setFbIdx); setFbSel(null); }} style={S.btn("linear-gradient(90deg,#d97706,#f59e0b)")}>Next Question →</button>
         </>}
       </div>
@@ -5918,7 +6198,7 @@ export default function App() {
   if (game === "bookworm") {
     const CELL = 52;
     const currentWord = bwSel.map(i=>bwGrid[i].letter).join("");
-    return (<>{overlays}<div style={S.wrap("linear-gradient(160deg,#065f46,#047857,#059669)", showBottomNav ? 72 : 0)}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter-game" style={S.wrap("linear-gradient(160deg,#011510,#013322,#065f46)", showBottomNav ? 72 : 0)}>
       <div style={S.hdr}>
         <button style={S.back} onClick={() => { if(mgTimerRef.current) clearInterval(mgTimerRef.current); setGame(null); }}>← Games</button>
         <div style={{ display:"flex", gap:12, alignItems:"center" }}>
@@ -5984,7 +6264,7 @@ export default function App() {
     const isScramble  = mgMonster.type==="scramble";
     const isSpell     = mgMonster.type==="spell";
     const isAntonym   = mgMonster.type==="antonym";
-    return (<>{overlays}<div style={S.wrap()}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter-game" style={S.wrap("linear-gradient(160deg,#160000,#4a0404,#7f1d1d)")}>
       <style>{"@keyframes mgshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}"}</style>
       <div style={S.hdr}>
         <button style={S.back} onClick={() => { if(mgTimerRef.current) clearInterval(mgTimerRef.current); setGame(null); }}>← Games</button>
@@ -6006,7 +6286,7 @@ export default function App() {
         {mgResult && (
           <div style={{ textAlign:"center", marginBottom:14, padding:"14px", borderRadius:16, background: mgResult==="win"?"rgba(74,222,128,.15)":mgResult==="dead"?"rgba(0,0,0,.4)":"rgba(248,113,113,.15)", border:"1.5px solid "+(mgResult==="win"?"#4ade80":mgResult==="dead"?"#374151":"#f87171") }}>
             <div style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>{mgResult==="win"?m.win:mgResult==="dead"?"💀 Game Over! Final score: "+mgScore+" XP":m.lose}</div>
-            {mgResult==="dead" && <button onClick={() => { setMgFloor(1); setMgHearts(3); setMgScore(0); setMgResult(null); setMgSel(null); setMgInput(""); const types=["goblin","zombie","dracula","dragon","ghost"]; const t=types[Math.floor(Math.random()*types.length)]; const ch=mgGenChallenge(t); setMgMonster({...MONSTERS[t],...ch,monsterType:t,isBoss:false,floor:1}); if(mgTimerRef.current)clearInterval(mgTimerRef.current); if(t==="dracula"){let tm=15;setMgTimer(tm);mgTimerRef.current=setInterval(()=>{tm--;setMgTimer(tm);if(tm<=0){clearInterval(mgTimerRef.current);handleMGFail();}},1000);}else setMgTimer(null); }} style={S.btn("linear-gradient(90deg,#6366f1,#a78bfa)")}>Play Again →</button>}
+            {mgResult==="dead" && <button onClick={() => { setMgFloor(1); setMgHearts(3); setMgScore(0); setMgResult(null); setMgSel(null); setMgInput(""); setMgBuyConfirm(false); const types=["goblin","zombie","dracula","dragon","ghost"]; const t=types[Math.floor(Math.random()*types.length)]; const ch=mgGenChallenge(t); setMgMonster({...MONSTERS[t],...ch,monsterType:t,isBoss:false,floor:1}); if(mgTimerRef.current)clearInterval(mgTimerRef.current); if(t==="dracula"){let tm=15;setMgTimer(tm);mgTimerRef.current=setInterval(()=>{tm--;setMgTimer(tm);if(tm<=0){clearInterval(mgTimerRef.current);handleMGFail();}},1000);}else setMgTimer(null); }} style={S.btn("linear-gradient(90deg,#6366f1,#a78bfa)")}>Play Again →</button>}
           </div>
         )}
 
@@ -6051,13 +6331,25 @@ export default function App() {
               </>
             )}
             {mgHearts < 5 && xp >= 30 && (
-              <button onClick={() => {
-                setXp(p => { const next = Math.max(0,p-30); window.storage.set("ws_xp",String(next)).catch(()=>{}); return next; });
-                setMgHearts(h=>Math.min(h+1,5));
-              }}
-                style={{ ...S.btn("rgba(255,255,255,.08)"), border:"1px solid rgba(255,255,255,.2)", marginTop:10, fontSize:14 }}>
-                ❤️ Buy 1 Heart — 30 XP
-              </button>
+              mgBuyConfirm ? (
+                <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                  <button onClick={() => {
+                    setXp(p => { const next = Math.max(0,p-30); window.storage.set("ws_xp",String(next)).catch(()=>{}); return next; });
+                    setMgHearts(h=>Math.min(h+1,5)); setMgBuyConfirm(false);
+                  }} style={{ ...S.btn("rgba(239,68,68,.5)"), flex:1, fontSize:13, padding:"10px" }}>
+                    ✅ Yes, spend 30 XP
+                  </button>
+                  <button onClick={() => setMgBuyConfirm(false)}
+                    style={{ ...S.btn("rgba(255,255,255,.08)"), flex:1, fontSize:13, padding:"10px" }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setMgBuyConfirm(true)}
+                  style={{ ...S.btn("rgba(255,255,255,.08)"), border:"1px solid rgba(255,255,255,.2)", marginTop:10, fontSize:14 }}>
+                  ❤️ Buy 1 Heart — 30 XP
+                </button>
+              )
             )}
           </>
         )}
@@ -6072,7 +6364,7 @@ export default function App() {
     // Flatten all meanings across entries
     const allMeanings = entries.flatMap(e => e.meanings || []);
 
-    return (<>{overlays}<div style={{ ...S.wrap("linear-gradient(160deg,#0e4f7e,#0e7490,#06b6d4)", showBottomNav ? 72 : 0), overflowY:"auto" }}>
+    return (<>{overlays}<div key={screenKey} className="ws-enter" style={{ ...S.wrap("linear-gradient(160deg,#0e4f7e,#0e7490,#06b6d4)", showBottomNav ? 72 : 0), overflowY:"auto" }}>
       <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button>
         <div style={{ flex:1, textAlign:"center", fontWeight:700, fontSize:16 }}>📖 Dictionary</div>
       </div>
@@ -6187,7 +6479,7 @@ export default function App() {
         {/* Empty state */}
         {!dictResult && !dictError && !dictLoading && (
           <div style={{ textAlign:"center", padding:"40px 20px", color:"rgba(255,255,255,.35)", fontSize:14, lineHeight:1.8 }}>
-            Type any English word above and tap 🔍{"\n"}to see its definition, pronunciation, and examples.
+            Type any English word above and tap 🔍<br/>to see its definition, pronunciation, and examples.
           </div>
         )}
       </div>
@@ -6197,7 +6489,7 @@ export default function App() {
   // ── EMILY / SPEAK ─────────────────────────────────────────────────────────────
   if (screen === "speak") {
     if (!topic) return (
-      <>{overlays}<div style={S.wrap("linear-gradient(160deg,#065f46,#047857,#059669)")}>
+      <>{overlays}<div key={screenKey} className="ws-enter" style={S.wrap("linear-gradient(160deg,#065f46,#047857,#059669)")}>
         <div style={S.hdr}><button style={S.back} onClick={() => go("home")}>← Back</button></div>
         <div style={{ padding:"0 20px 40px" }}>
           <div style={{ textAlign:"center", marginBottom:24 }}>
@@ -6230,7 +6522,7 @@ export default function App() {
     );
 
     return (
-      <>{overlays}<div style={{ ...S.wrap("linear-gradient(160deg,#065f46,#047857,#059669)"), display:"flex", flexDirection:"column", height:"100vh" }}>
+      <>{overlays}<div key={screenKey} className="ws-enter" style={{ ...S.wrap("linear-gradient(160deg,#065f46,#047857,#059669)"), display:"flex", flexDirection:"column", height:"100vh" }}>
         <div style={{ ...S.hdr, flexShrink:0 }}>
           <button style={S.back} onClick={() => { window.speechSynthesis?.cancel(); setTopic(null); setMsgs([]); setChatIn(""); }}>← Topics</button>
           <div style={{ flex:1, textAlign:"center" }}>
