@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 // ── API PROXY ─────────────────────────────────────────────────────────────────
-// Replace with your Cloudflare Worker URL after deployment.
-// See wordspark-worker.js for setup instructions.
-const ANTHROPIC_PROXY = "https://api.anthropic.com"; // ← swap to your worker URL
+const ANTHROPIC_PROXY = "https://wordspark-api.YOUR-NAME.workers.dev";
 
 // ── GAME DATA ──────────────────────────────────────────────────────────────────
 const WORDS_DATA = {
