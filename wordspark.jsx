@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 // ── API PROXY ─────────────────────────────────────────────────────────────────
-const ANTHROPIC_PROXY = "https://wordspark-api.YOUR-NAME.workers.dev";
+const ANTHROPIC_PROXY = "https://wordspark-api.happy-hoanglong.workers.dev";
 
 // ── GAME DATA ──────────────────────────────────────────────────────────────────
 const WORDS_DATA = {
