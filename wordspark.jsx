@@ -2119,7 +2119,7 @@ function getIdiomOfWeek(level) {
 // ── WORD OF THE DAY DATA — fetched from remote, cached in storage ─────────────
 // To update words: edit your GitHub Gist, the app picks up changes within 7 days.
 // Replace this URL with your own Gist raw URL after uploading wordspark-words.json
-const WOTD_URL = "https://gist.githubusercontent.com/Jadon1988/3496997f852e4dd65987b61d6f989de5/raw/wordspark-words.json";
+const WOTD_URL = "https://gist.githubusercontent.com/Jadon1988/3e1f05de5d9b6ce2d951d47f2c8feec8/raw/wordspark-words.json";
 const WOTD_CACHE_KEY = "ws_wotd_words";
 const WOTD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
