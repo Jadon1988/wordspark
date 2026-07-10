@@ -1,8 +1,0 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "io.github.jadon1988.twa",
-        "sha256_cert_fingerprints": ["18:6B:39:90:33:89:56:B2:D5:C5:C5:58:E7:5E:EA:11:43:DF:EF:63:56:3D:1F:72:40:61:DE:91:DB:B2:BB:C5"]
-      }
-    }]
