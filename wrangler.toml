@@ -1,0 +1,42 @@
+name = "wordspark"
+main = "worker.js"
+compatibility_date = "2026-07-13"
+
+# Keeps https://wordspark.happy-hoanglong.workers.dev alive. Without this line, a Wrangler
+# deploy can turn the workers.dev route OFF — and the app calls that exact URL, so the whole
+# app would go dark again.
+workers_dev = true
+
+# Keeps the Worker's logs on (Observability tab). Without it, a deploy can switch them off,
+# and the logs are how we find the next problem instead of guessing at it.
+[observability]
+enabled = true
+
+# ── THE FIX ───────────────────────────────────────────────────────────────────
+# A Worker's outbound calls leave from the datacentre where the Worker RUNS, and by default
+# that is the one nearest the user. Vietnamese traffic routes through Cloudflare's HONG KONG
+# datacentre — and Hong Kong is NOT on Anthropic's supported-countries list. Vietnam is.
+#
+# So every call was refused at Anthropic's edge with
+#   403 {"error":{"type":"forbidden","message":"Request not allowed"}}
+# before the API key was even read. Valid key, funded account, supported country — and zero
+# tokens ever billed, because not one request was ever accepted.
+#
+# This pins the Worker near AWS us-east-1, so its calls leave from the United States.
+# VERIFY AFTER DEPLOY: open /diag-8f3k2 and check cfRay ends in a US code (IAD, EWR, DFW),
+# not -HKG.
+#
+# Do NOT use mode = "smart" instead. Smart Placement picks by measured request duration, and
+# a 403 comes back very fast — it would conclude Hong Kong is excellent and leave this broken.
+[placement]
+region = "aws:us-east-1"
+
+# ── D1 ────────────────────────────────────────────────────────────────────────
+# ONLY uncomment this if you have already created the D1 database. If you bound D1 in the
+# dashboard and leave this commented out, the deploy will REMOVE that binding.
+# database_id is on the D1 page: Storage & Databases -> D1 -> wordspark.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "wordspark"
+# database_id = "PASTE-YOUR-DATABASE-ID-HERE"
